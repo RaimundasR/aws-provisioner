@@ -1,0 +1,52 @@
+- name: Install MicroK8s
+  command: snap install microk8s --classic --channel={{ microk8s_version }}
+  environment:
+    PATH: "/snap/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+- name: Add 'ubuntu' user to microk8s group
+  user:
+    name: ubuntu
+    groups: microk8s
+    append: yes
+
+- name: Disable Snap Auto Updates (optional)
+  command: snap set system refresh.retain=2
+  when: not microk8s_disable_snap_autoupdate
+  environment:
+    PATH: "/snap/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+- name: Enable MicroK8s plugins
+  become: true
+  shell: >
+    microk8s enable {{ item.key }} {{ item.value if item.value is string else '' }}
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "/snap/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  loop: "{{ microk8s_plugins | dict2items }}"
+  when: item.value != false
+
+- name: Ensure ~/.kube directory exists for ubuntu
+  become: true
+  file:
+    path: /home/ubuntu/.kube
+    state: directory
+    mode: '0700'
+    owner: ubuntu
+    group: ubuntu
+
+- name: Export MicroK8s config to ~/.kube/config for ubuntu
+  become: true
+  shell: microk8s config > /home/ubuntu/.kube/config
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+- name: Fix permissions for kubeconfig
+  become: true
+  file:
+    path: /home/ubuntu/.kube/config
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'

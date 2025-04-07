@@ -1,0 +1,45 @@
+installCRDs: true
+
+cli:
+  image: ghcr.io/fluxcd/flux-cli
+  tag: v2.5.1
+imageAutomationController:
+  create: false
+imageReflectionController:
+  create: false
+kustomizeController:
+  create: false
+notificationController:
+  create: false
+helmController:
+  create: true
+  image: ghcr.io/fluxcd/helm-controller
+  tag: v1.2.0
+  container: {}
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+sourceController:
+  create: true
+  image: ghcr.io/fluxcd/source-controller
+  tag: v1.5.0
+  container: {}
+  resources:
+    limits:
+      cpu: 512m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+rbac:
+  create: true
+  createAggregation: true
+
+logLevel: info
+watchAllNamespaces: true

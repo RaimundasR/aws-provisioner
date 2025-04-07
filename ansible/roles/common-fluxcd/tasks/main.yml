@@ -1,0 +1,80 @@
+- name: Ensure ~/.kube directory exists for ubuntu
+  become: true
+  file:
+    path: /home/ubuntu/.kube
+    state: directory
+    mode: 0700
+    owner: ubuntu
+    group: ubuntu
+
+- name: Export MicroK8s config to ~/.kube/config for ubuntu
+  become: true
+  shell: microk8s config > /home/ubuntu/.kube/config
+  args:
+    creates: /home/ubuntu/.kube/config
+
+- name: Fix permissions for kubeconfig
+  become: true
+  file:
+    path: /home/ubuntu/.kube/config
+    owner: ubuntu
+    group: ubuntu
+    mode: 0600
+
+- name: Set KUBECONFIG env path as fact
+  set_fact:
+    flux_kubeconfig_path: /home/ubuntu/.kube/config
+
+- name: Ensure curl and apt-transport-https are installed
+  apt:
+    name: [curl, apt-transport-https]
+    state: present
+    update_cache: true
+  become: true
+
+- name: Download Helm install script
+  get_url:
+    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    dest: /tmp/get-helm-3.sh
+    mode: '0755'
+  become: true
+
+- name: Install Helm
+  command: /tmp/get-helm-3.sh
+  become: true
+
+- name: Add FluxCD Helm repo
+  command: helm repo add fluxcd https://fluxcd-community.github.io/helm-charts
+  become: true
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig_path }}"
+
+- name: Update Helm repos
+  command: helm repo update
+  become: true
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig_path }}"
+
+- name: Render flux-values.yaml.j2 to variable
+  set_fact:
+    flux_values_content: "{{ lookup('template', 'flux-values.yaml.j2') }}"
+
+- name: Write flux-values.yaml to remote host
+  copy:
+    content: "{{ flux_values_content }}"
+    dest: /tmp/flux-values.yaml
+    mode: '0644'
+  become: true
+
+- name: Install FluxCD (Helm & Source Controller only)
+  command: >
+    helm upgrade --install flux fluxcd/flux2
+    --namespace flux-system --create-namespace
+    --values /tmp/flux-values.yaml
+  become: true
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig_path }}"
+
+
+
+

@@ -1,0 +1,11 @@
+# ansible/playbook/install_tool.yml
+- hosts: microk8s
+  become: true
+  vars:
+    tool_id: "{{ tool_id }}"
+    domain: "{{ domain }}"
+  tasks:
+    - name: Install tool from CRD templates
+      import_role:
+        name: service-tool-installer
+      when: tool_id != ''

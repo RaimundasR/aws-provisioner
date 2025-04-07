@@ -1,0 +1,46 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: jenkins
+  namespace: {{ instance_name }}-{{ tool_id }}
+spec:
+  interval: 10m0s
+  url: https://charts.jenkins.io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: jenkins
+  namespace: {{ instance_name }}-{{ tool_id }}
+spec:
+  chart:
+    spec:
+      chart: jenkins
+      reconcileStrategy: ChartVersion
+      sourceRef:
+        kind: HelmRepository
+        name: jenkins
+  interval: 10m0s
+  releaseName: jenkins
+  values:
+    controller:
+      admin:
+        username: "admin"
+        password: "changeme"
+        createSecret: true
+      ingress:
+        ingressClassName: nginx
+        enabled: true
+        hostName: {{ domain }}
+        path: /
+        tls: []
+      installPlugins:
+      - kubernetes:4324.vfec199a_33512
+      - workflow-aggregator:608.v67378e9d3db_1
+      - git:5.7.0
+      - configuration-as-code:1953.v148f87d74b_1e
+    persistence:
+      enabled: true
+    service:
+      enabled: true

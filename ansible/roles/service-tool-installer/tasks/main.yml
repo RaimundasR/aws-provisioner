@@ -1,0 +1,34 @@
+- name: Create namespace for tool "{{ tool_id }}"
+  become: true
+  kubernetes.core.k8s:
+    kubeconfig: /home/ubuntu/.kube/config
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ instance_name }}-{{ tool_id }}"
+
+- name: Check if CRD template exists for tool "{{ tool_id }}"
+  stat:
+    path: "{{ role_path }}/templates/{{ tool_id }}-crd.yaml.j2"
+  register: tool_crd
+  delegate_to: localhost
+
+- name: DEBUG Check CRD file lookup path
+  debug:
+    msg: "CRD path checked: {{ role_path }}/templates/{{ tool_id }}-crd.yaml.j2"
+  delegate_to: localhost
+
+- name: DEBUG Did the CRD template exist?
+  debug:
+    var: tool_crd.stat.exists
+  delegate_to: localhost
+
+- name: Apply CRD for tool "{{ tool_id }}"
+  when: tool_crd.stat.exists
+  become: true
+  kubernetes.core.k8s:
+    kubeconfig: /home/ubuntu/.kube/config
+    state: present
+    definition: "{{ lookup('template', tool_id + '-crd.yaml.j2', wantlist=True) | from_yaml_all }}"

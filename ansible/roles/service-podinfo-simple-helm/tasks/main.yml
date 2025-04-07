@@ -1,0 +1,63 @@
+- name: Ensure ~/.kube directory exists
+  become: true
+  file:
+    path: /home/ubuntu/.kube
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0700'
+
+- name: Export MicroK8s kubeconfig for ubuntu
+  become: true
+  shell: microk8s config > /home/ubuntu/.kube/config
+  args:
+    creates: /home/ubuntu/.kube/config
+
+- name: Fix kubeconfig permissions
+  become: true
+  file:
+    path: /home/ubuntu/.kube/config
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
+
+- name: Ensure Helm repo for podinfo exists
+  become: true
+  environment:
+    KUBECONFIG: /home/ubuntu/.kube/config
+  shell: |
+    helm repo list | grep -q "^podinfo" || helm repo add podinfo https://stefanprodan.github.io/podinfo
+  args:
+    warn: false
+
+- name: Update Helm repos
+  become: true
+  environment:
+    KUBECONFIG: /home/ubuntu/.kube/config
+  command: helm repo update
+
+- name: Template podinfo values file
+  become: true
+  template:
+    src: podinfo.yaml.j2
+    dest: /tmp/podinfo-values.yaml
+  vars:
+    podinfo_host: "{{ domain }}"
+
+- name: Deploy podinfo with Helm
+  become: true
+  environment:
+    KUBECONFIG: /home/ubuntu/.kube/config
+  command:
+    argv:
+      - helm
+      - upgrade
+      - --install
+      - podinfo
+      - podinfo/podinfo
+      - --namespace
+      - podinfo
+      - --create-namespace
+      - --values
+      - /tmp/podinfo-values.yaml
+

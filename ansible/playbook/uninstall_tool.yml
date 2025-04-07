@@ -1,0 +1,21 @@
+# ansible/playbook/uninstall_tool.yml
+- name: Uninstall tool {{ tool_id }}
+  hosts: microk8s
+  become: true
+  vars:
+    ns: "{{ instance_name }}-{{ tool_id }}"
+    release: "{{ tool_id }}"
+  tasks:
+    - name: Remove finalizers from HelmRelease {{ release }} (FluxCD safe delete)
+      command: >
+        microk8s kubectl -n {{ ns }} patch helmrelease {{ release }}
+        -p '{"metadata":{"finalizers":[]}}' --type=merge
+      ignore_errors: true
+
+    - name: Delete HelmRelease {{ release }}
+      command: microk8s kubectl delete helmrelease {{ release }} -n {{ ns }} --ignore-not-found=true
+      ignore_errors: true
+
+    - name: Delete namespace {{ ns }}
+      command: microk8s kubectl delete namespace {{ ns }} --ignore-not-found=true
+      ignore_errors: true

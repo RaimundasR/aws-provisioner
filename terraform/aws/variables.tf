@@ -27,4 +27,8 @@ variable "ssh_ingress_cidr" {
   type        = string
   description = "CIDR block to allow SSH access from"
 }
+variable "instance_name" {
+  description = "The name to assign to the EC2 instance"
+  type        = string
+}
 

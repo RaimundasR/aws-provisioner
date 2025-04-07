@@ -1,0 +1,22 @@
+- hosts: microk8s
+  become: true
+  roles:
+    - role: common-utilities
+    - role: common-microk8s
+    - role: common-fluxcd
+   
+
+
+# - hosts: microk8s
+#   become: true
+#   vars:
+#     selected_tool: "{{ tool_id | default('') }}"
+#   tasks:
+  
+#     - name: Include MicroK8s role
+#       import_role:
+#         name: common-microk8s
+
+#     - name: Include FluxCD role
+#       import_role:
+#         name: common-fluxcd
