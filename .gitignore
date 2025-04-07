@@ -1,0 +1,25 @@
+# Ignore config files (like infra.config.json)
+*.config.json
+
+# Ignore private SSH keys
+*.pem
+
+# Ignore Ansible generated files
+inventory.ini
+
+# Ignore Terraform state and cache
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+
+# Ignore logs
+*.log
+
+# Editor files
+*.swp
+*.swo
+.DS_Store
+
