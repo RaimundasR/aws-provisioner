@@ -3,16 +3,6 @@ variable "region" {
   description = "AWS region to deploy resources"
 }
 
-variable "key_name" {
-  type        = string
-  description = "Name of the AWS key pair"
-}
-
-variable "private_key_path" {
-  type        = string
-  description = "Path to the private key for SSH"
-}
-
 variable "ami" {
   type        = string
   description = "AMI ID to use for the EC2 instance"
@@ -23,12 +13,22 @@ variable "instance_type" {
   description = "EC2 instance type"
 }
 
+variable "key_name" {
+  type        = string
+  description = "Name of the AWS key pair"
+}
+
 variable "ssh_ingress_cidr" {
   type        = string
   description = "CIDR block to allow SSH access from"
 }
-variable "instance_name" {
-  description = "The name to assign to the EC2 instance"
-  type        = string
-}
 
+variable "instances" {
+  description = "Instances to create"
+  type = map(object({
+    ami           = string
+    instance_type = string
+    key_name      = string
+  }))
+  default = {}
+}

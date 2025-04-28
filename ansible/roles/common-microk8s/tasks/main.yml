@@ -4,6 +4,11 @@
   ignore_errors: true
   changed_when: false
 
+- name: Print warning if MicroK8s is not installed
+  debug:
+    msg: "MicroK8s is NOT installed yet. Proceeding to install.."
+  when: microk8s_check.rc != 0
+
 - name: Set fact if MicroK8s is running
   set_fact:
     microk8s_running: "{{ microk8s_check.rc == 0 }}"

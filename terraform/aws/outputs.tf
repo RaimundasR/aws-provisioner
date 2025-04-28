@@ -1,7 +1,8 @@
+# ------------------------
+# outputs.tf
+# ------------------------
+
 output "instance_ips" {
-  description = "Public IPs of the MicroK8s EC2 instances"
-  value = {
-    for name, instance in aws_instance.microk8s :
-    name => instance.public_ip
-  }
+  description = "Public IPs of all EC2 instances"
+  value = { for k, inst in aws_instance.microk8s : k => inst.public_ip }
 }
