@@ -2,7 +2,6 @@
 
 set -e
 
-
 # Load Vault token automatically if available
 # if [[ -f "$HOME/.vault.env" ]]; then
 #   source "$HOME/.vault.env"
@@ -11,6 +10,7 @@ set -e
 CONFIG_FILE="config/infra.config.json"
 export AWS_PROFILE=ec2_micro_provisioner
 DNS_FILE="terraform/cloudflare/dns.tfvars.json"
+INSTANCES_FILE="terraform/aws/instance_ips.json"
 
 DOMAIN=""
 INSTANCE_NAME=""
@@ -24,7 +24,7 @@ function get_config_value() {
 }
 
 # function vault_login() {
-#   echo "📛 VAULT_TOKEN in script is: $VAULT_TOKEN"
+#   echo "💛 VAULT_TOKEN in script is: $VAULT_TOKEN"
 #   if [[ -z "$VAULT_TOKEN" ]]; then
 #     echo "❌ VAULT_TOKEN is not set. Please export it before running."
 #     exit 1
@@ -38,7 +38,6 @@ function get_config_value() {
 #   echo "📥 Downloading Vault secret '$SECRET_PATH'..."
 #   vault_login
 
-#   # ✅ Your secret is directly under .data
 #   vault kv get -format=json "$SECRET_PATH" \
 #     | jq '.data' \
 #     > "$CONFIG_FILE"
@@ -61,9 +60,8 @@ function get_config_value() {
 #   echo "🧩 private_key_path: $SSH_KEY"
 # }
 
-
 # function cleanup_configs() {
-#   echo "🧹 Cleaning up config JSON files..."
+#   echo "🚹 Cleaning up config JSON files..."
 #   rm -f config/*.json
 # }
 
@@ -76,7 +74,6 @@ function generate_inventory() {
   echo "🔑 Using SSH key: $KEY_PATH"
   echo "🌐 Using IP: $IP"
 
-  # Attempt to auto-detect the Python interpreter used by Ansible
   DETECTED_PYTHON=$(ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no "$USER@$IP" \
     "command -v python3.12 || command -v python3.10 || command -v python3 || echo '/usr/bin/python3'")
 
@@ -103,6 +100,38 @@ function wait_for_ssh() {
   echo "✅ SSH is ready!"
 }
 
+function save_instance_ip() {
+  echo "🌍 Saving AWS instance names and IPs..."
+  terraform -chdir=terraform/aws output -json instance_ips > "$INSTANCES_FILE"
+  echo "✅ Saved AWS instance data to $INSTANCES_FILE"
+}
+
+function update_dns_from_instance() {
+  echo "🌍 Updating DNS records from instance IP..."
+
+  if [[ ! -f "$INSTANCES_FILE" ]]; then
+    echo "❌ $INSTANCES_FILE not found."
+    exit 1
+  fi
+
+  IP=$(jq -r --arg name "$INSTANCE_NAME" '.[$name]' "$INSTANCES_FILE")
+  if [[ "$IP" == "null" ]]; then
+    echo "❌ Instance name $INSTANCE_NAME not found in $INSTANCES_FILE."
+    exit 1
+  fi
+
+  if [[ ! -f "$DNS_FILE" || ! $(jq -e . "$DNS_FILE" 2>/dev/null) ]]; then
+    echo '{"dns_records": []}' > "$DNS_FILE"
+  fi
+
+  TMP=$(mktemp)
+  jq --arg name "$DOMAIN" --arg content "$IP" \
+    '.dns_records |= (map(select(.name != $name)) + [{"name": $name, "content": $content}])' \
+    "$DNS_FILE" > "$TMP" && mv "$TMP" "$DNS_FILE"
+
+  echo "✅ Updated DNS records in $DNS_FILE"
+}
+
 function create() {
   echo "🔧 Reading config from $CONFIG_FILE..."
   REGION=$(get_config_value region)
@@ -115,8 +144,10 @@ function create() {
     -var="instance_name=$INSTANCE_NAME"
   cd ../..
 
-  echo "🔍 Fetching public IP from terraform output..."
-  IP=$(terraform -chdir=terraform/aws output -raw instance_ip)
+  save_instance_ip
+
+  echo "🔍 Fetching public IP for $INSTANCE_NAME..."
+  IP=$(jq -r --arg name "$INSTANCE_NAME" '.[$name]' "$INSTANCES_FILE")
   echo "🌐 Instance IP: $IP"
 
   echo "⏳ Waiting a bit before attempting SSH..."
@@ -136,20 +167,7 @@ function create() {
     ansible-playbook -i inventory.ini ansible/playbook/install_tool.yml \
       -e "tool_id=$TOOL_ID instance_name=$INSTANCE_NAME domain=$DOMAIN"
 
-    echo "🌍 Appending $DOMAIN → $IP to dns.tfvars.json"
-
-    # Ensure JSON file exists and is valid
-    if [[ ! -f "$DNS_FILE" || ! $(jq -e . "$DNS_FILE" 2>/dev/null) ]]; then
-      echo '{"dns_records": []}' > "$DNS_FILE"
-    fi
-
-    # Merge domain entry without overwriting others
-    TMP=$(mktemp)
-    jq --arg name "$DOMAIN" --arg content "$IP" \
-      '.dns_records |= (map(select(.name != $name)) + [{"name": $name, "content": $content}])' \
-      "$DNS_FILE" > "$TMP" && mv "$TMP" "$DNS_FILE"
-
-    echo "✅ Ensured $DOMAIN is present in $DNS_FILE"
+    update_dns_from_instance
 
     echo "🌍 Running Terraform for Cloudflare"
     cd terraform/cloudflare
@@ -163,14 +181,11 @@ function create() {
   else
     echo "✅ Infrastructure for instance '$INSTANCE_NAME' created"
   fi
-
-  # Call re-enabled cleanup
-  # cleanup_configs
 }
 
 function destroy_tool_only() {
   echo "🔧 Destroying tool-specific resources for: $TOOL_ID"
-  IP=$(terraform -chdir=terraform/aws output -raw instance_ip)
+  IP=$(jq -r --arg name "$INSTANCE_NAME" '.[$name]' "$INSTANCES_FILE")
 
   generate_inventory "$IP"
 
@@ -205,35 +220,7 @@ function destroy_tool_only() {
 
 function destroy() {
   if [[ -n "$TOOL_ID" && -n "$DOMAIN" ]]; then
-    echo "🔧 Destroying tool-specific resources for: $TOOL_ID"
-    IP=$(terraform -chdir=terraform/aws output -raw instance_ip)
-
-    generate_inventory "$IP"
-
-    ANSIBLE_CONFIG=ansible/playbook/ansible.cfg \
-    ansible-playbook -i inventory.ini ansible/playbook/uninstall_tool.yml \
-      -e "tool_id=$TOOL_ID instance_name=$INSTANCE_NAME"
-
-    echo "📉 Removing $DOMAIN from dns.tfvars.json"
-    if [[ -f "$DNS_FILE" ]]; then
-      TMP=$(mktemp)
-      jq --arg domain "$DOMAIN" \
-        '.dns_records |= map(select(.name != $domain))' \
-        "$DNS_FILE" > "$TMP" && mv "$TMP" "$DNS_FILE"
-      echo "✅ Updated $DNS_FILE without $DOMAIN"
-    else
-      echo "⚠️ dns.tfvars.json not found, skipping DNS removal"
-    fi
-
-    echo "🌍 Applying updated Terraform to remove DNS"
-    cd terraform/cloudflare
-    terraform init -input=false
-    terraform apply -auto-approve \
-      -var-file="../../config/infra.config.json" \
-      -var-file="dns.tfvars.json"
-    cd ../..
-
-    echo "✅ Tool '$TOOL_ID' resources removed."
+    destroy_tool_only
   fi
 
   echo "🔥 Destroying EC2 instance using Terraform..."
@@ -243,12 +230,11 @@ function destroy() {
     -var="instance_name=$INSTANCE_NAME"
   cd ../..
 
-  echo "🧹 Cleaning up local inventory..."
+  echo "🚹 Cleaning up local inventory..."
   rm -f inventory.ini
 
   echo "✅ Teardown complete."
 }
-
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
