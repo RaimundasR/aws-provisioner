@@ -1,0 +1,47 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: rocketapp
+  namespace: {{ instance_name }}-{{ tool_id }}
+spec:
+  interval: 10m0s
+  url: https://test-b78b89.gitlab.io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: rocketapp
+  namespace: {{ instance_name }}-{{ tool_id }}
+spec:
+  chart:
+    spec:
+      chart: rocketapp
+      sourceRef:
+        kind: HelmRepository
+        name: rocketapp
+      version: ">=0.1.1"
+  interval: 10m0s
+  values:
+    replicaCount: 1
+    image:
+      repository: raimundas0106/rocket
+      pullPolicy: IfNotPresent
+      tag: "latest"
+    service:
+      enabled: true
+      type: ClusterIP
+      port: 80
+    ingress:
+      enabled: true
+      className: "public"
+      annotations: {}
+      hosts:
+        - host: rocket.devplay.art
+          paths:
+            - path: /
+              pathType: Prefix
+      tls: []
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
