@@ -35,12 +35,19 @@ function get_config_value() {
 
 # function download_config_from_vault() {
 #   SECRET_PATH="k8s/infra.config.json"
+
 #   echo "📥 Downloading Vault secret '$SECRET_PATH'..."
 #   vault_login
-#   vault kv get -format=json "$SECRET_PATH" | jq '.data' > "$CONFIG_FILE"
+
+#   vault kv get -format=json "$SECRET_PATH" \
+#     | jq '.data' \
+#     > "$CONFIG_FILE"
+
 #   echo "✅ Config downloaded to $CONFIG_FILE"
+
 #   SSH_USER=$(jq -r '.ssh_user' "$CONFIG_FILE")
 #   SSH_KEY=$(jq -r '.private_key_path' "$CONFIG_FILE")
+
 #   if [[ "$SSH_USER" == "null" || -z "$SSH_USER" ]]; then
 #     echo "❌ Missing or invalid 'ssh_user' in Vault config"
 #     exit 1
@@ -49,8 +56,14 @@ function get_config_value() {
 #     echo "❌ Missing or invalid 'private_key_path' in Vault config"
 #     exit 1
 #   fi
-#   echo "🧙‍♂️ ssh_user: $SSH_USER"
-#   echo "🧙‍♂️ private_key_path: $SSH_KEY"
+
+#   echo "🧩 ssh_user: $SSH_USER"
+#   echo "🧩 private_key_path: $SSH_KEY"
+# }
+
+# function cleanup_configs() {
+#   echo "🚹 Cleaning up config JSON files..."
+#   rm -f config/*.json
 # }
 
 function generate_inventory() {
@@ -286,6 +299,52 @@ function create() {
   fi 
 }
 
+function destroy_tool_only() {
+  echo "🔧 Destroying tool-specific resources for: $TOOL_ID"
+
+  if [[ ! -f "$INSTANCES_FILE_IP" ]]; then
+    echo "❌ $INSTANCES_FILE_IP not found."
+    exit 1
+  fi
+
+  IP=$(jq -r --arg name "$INSTANCE_NAME" '.[$name]' "$INSTANCES_FILE_IP")
+
+  if [[ -z "$IP" || "$IP" == "null" ]]; then
+    echo "❌ Failed to find IP for $INSTANCE_NAME in $INSTANCES_FILE_IP"
+    exit 1
+  fi
+
+  generate_inventory "$IP"
+
+  echo "🧹 Running Ansible to uninstall tool '$TOOL_ID' from $INSTANCE_NAME"
+  ANSIBLE_CONFIG=ansible/playbook/ansible.cfg \
+  ansible-playbook -i inventory.ini ansible/playbook/uninstall_tool.yml \
+    -e "tool_id=$TOOL_ID instance_name=$INSTANCE_NAME"
+
+  if [[ -n "$DOMAIN" ]]; then
+    echo "📉 Removing $DOMAIN from dns.tfvars.json"
+    if [[ -f "$DNS_FILE" ]]; then
+      TMP=$(mktemp)
+      jq --arg domain "$DOMAIN" \
+        '.dns_records |= map(select(.name != $domain))' \
+        "$DNS_FILE" > "$TMP" && mv "$TMP" "$DNS_FILE"
+      echo "✅ Updated $DNS_FILE without $DOMAIN"
+    else
+      echo "⚠️ $DNS_FILE not found, skipping DNS removal"
+    fi
+
+    echo "🌐 Applying updated DNS to Cloudflare..."
+    cd terraform/cloudflare
+    terraform init -input=false
+    terraform apply -auto-approve \
+      -var-file=../../config/infra.config.json \
+      -var-file=dns.tfvars.json
+    cd ../..
+    echo "✅ DNS changes applied"
+  fi
+
+  echo "✅ Tool '$TOOL_ID' resources removed from $INSTANCE_NAME."
+}
 
 
 function destroy() {
@@ -371,7 +430,11 @@ case "$ACTION" in
     create
     ;;
   delete)
-    destroy
+    if [[ "$DESTROY_TOOL_ONLY" == true ]]; then
+      destroy_tool_only
+    else
+      destroy
+    fi
     ;;
   *)
     echo "❌ Invalid action: $ACTION"
